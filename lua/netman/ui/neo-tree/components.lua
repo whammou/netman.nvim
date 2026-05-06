@@ -63,7 +63,7 @@ M.expanded = function(config, node, state)
 end
 
 M.icon = function(config, node, state)
-    local _icon = common.icon(config, node, state)
+    local _icon = { text = '', highlight = '' }
     local entry = node.extra
     if not entry then
         return _icon
@@ -81,6 +81,14 @@ M.icon = function(config, node, state)
     end
     _icon.highlight = entry.highlight or _icon.highlight
     return _icon
+end
+
+M.git_status = function(config, node, state)
+    -- Netman nodes have no filesystem path; skip git status entirely
+    if not node.path or type(node.path) ~= "string" or (node.id and node.id:match("^%w+://")) then
+        return {}
+    end
+    return common.git_status(config, node, state)
 end
 
 M.state = function(config, node, state)
