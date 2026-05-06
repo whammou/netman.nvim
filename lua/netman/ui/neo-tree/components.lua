@@ -63,30 +63,30 @@ M.expanded = function(config, node, state)
 end
 
 M.icon = function(config, node, state)
-    local _icon = { text = config.default and config.default.text or '?', highlight = config.default and config.default.highlight or 'NeoTreeNormal' }
-    -- Guard: only call common.icon if node.name is a valid string
-    if node.name and type(node.name) == 'string' then
-        local ok, result = pcall(common.icon, config, node, state)
-        if ok and result then
-            _icon = result
-        end
-    end
+    -- Build base icon: start with netman's own logic
+    local _icon = { text = config.default or '*', highlight = config.highlight or 'NeoTreeFileIcon' }
     local entry = node.extra
-    if not entry then
+    if entry then
+        if entry.refresh then
+            _icon.text = M.internal.refresh_icon
+        elseif entry.error then
+            _icon.text = M.internal.state_map.ERROR.text
+        elseif entry.icon then
+            _icon.text = string.format("%s ", entry.icon)
+        elseif node.type == 'netman_host' and entry.os and type(entry.os) == 'string' then
+            local os_icon, os_hl = icon_map(entry.os)
+            if os_icon and os_icon ~= '' then
+                _icon.text, _icon.highlight = os_icon, os_hl
+            end
+        end
+        _icon.highlight = entry.highlight or _icon.highlight
         return _icon
     end
-    if entry.refresh then
-        _icon.text = M.internal.refresh_icon
-    elseif entry.error then
-        _icon.text = M.internal.state_map.ERROR.text
-    elseif entry.icon then
-        _icon.text = string.format("%s ", entry.icon)
-    elseif node.type == 'netman_host' then
-        if entry.os and type(entry.os) == 'string' then
-            _icon.text, _icon.highlight = icon_map(entry.os)
-        end
+    -- For non-netman nodes, try common.icon() safely
+    local ok, result = pcall(common.icon, config, node, state)
+    if ok and result and result.text and result.text ~= '' then
+        return result
     end
-    _icon.highlight = entry.highlight or _icon.highlight
     return _icon
 end
 
