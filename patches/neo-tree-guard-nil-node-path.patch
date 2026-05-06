@@ -1,0 +1,45 @@
+From 49ae15f477c6fb123cf65cc6d0ec1e337352ab65 Mon Sep 17 00:00:00 2001
+From: "whammou@arch" <khoabui.ld99@gmail.com>
+Date: Wed, 6 May 2026 23:47:45 +0700
+Subject: [PATCH] fix(git): guard against nil node.path and invalid name in
+ icon provider
+
+- Add nil/type/uri check for node.path before git worktree lookup
+  to fix crash when rendering non-filesystem nodes (e.g., netman)
+- Guard web_devicons.get_icon() call with type(name) == "string"
+  to fix mini.icons error when node.name is nil
+---
+ lua/neo-tree/defaults.lua                  | 2 +-
+ lua/neo-tree/sources/common/components.lua | 3 +++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/lua/neo-tree/defaults.lua b/lua/neo-tree/defaults.lua
+index 7af10b3..28d1620 100644
+--- a/lua/neo-tree/defaults.lua
++++ b/lua/neo-tree/defaults.lua
+@@ -228,7 +228,7 @@ local config = {
+         if node.type == "file" or node.type == "terminal" then
+           local success, web_devicons = pcall(require, "nvim-web-devicons")
+           local name = node.type == "terminal" and "terminal" or node.name
+-          if success then
++          if success and type(name) == "string" then
+             local devicon, hl = web_devicons.get_icon(name)
+             icon.text = devicon or icon.text
+             icon.highlight = hl or icon.highlight
+diff --git a/lua/neo-tree/sources/common/components.lua b/lua/neo-tree/sources/common/components.lua
+index 6cfd81a..f3af80e 100644
+--- a/lua/neo-tree/sources/common/components.lua
++++ b/lua/neo-tree/sources/common/components.lua
+@@ -244,6 +244,9 @@ M.git_status = function(config, node, state)
+   end
+ 
+   local path = node.path
++  if not path or type(path) ~= "string" or path:match("^%w+://") then
++    return {}
++  end
+   local worktree_root = git.find_existing_worktree(path)
+   local status, status_from_diff = git.find_existing_status_code(path, state.git_base_by_worktree)
+ 
+-- 
+2.53.0
+
