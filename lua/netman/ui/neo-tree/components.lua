@@ -63,7 +63,14 @@ M.expanded = function(config, node, state)
 end
 
 M.icon = function(config, node, state)
-    local _icon = { text = '', highlight = '' }
+    local _icon = { text = config.default and config.default.text or '?', highlight = config.default and config.default.highlight or 'NeoTreeNormal' }
+    -- Guard: only call common.icon if node.name is a valid string
+    if node.name and type(node.name) == 'string' then
+        local ok, result = pcall(common.icon, config, node, state)
+        if ok and result then
+            _icon = result
+        end
+    end
     local entry = node.extra
     if not entry then
         return _icon
