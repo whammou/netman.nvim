@@ -211,12 +211,12 @@ function SSH:new(auth_details, provider_cache)
         end
         return self[_key]
     end
-    -- These are all lazy loaded via the index function
-    -- _ssh.os = ''
-    -- _ssh.home = ''
-    -- _ssh._archive_commands = {}
-    -- _ssh._extract_commands = {}
-    -- _ssh.archive_schemes = {}
+        -- These are all lazy loaded via the index function
+    _ssh.os = nil
+    _ssh.home = ''
+    _ssh._archive_commands = {}
+    _ssh._extract_commands = {}
+    _ssh.archive_schemes = {}
     setmetatable(_ssh, self)
     provider_cache:add_item(cache_key, _ssh)
     return _ssh
@@ -1866,6 +1866,9 @@ function M.ui.get_host_details(config, host, provider_cache)
         return paths
     end
     local get_os = function()
+        if not connection.os then
+            connection.os = connection:_get_os() or "unknown"
+        end
         return connection.os
     end
     return {
