@@ -63,32 +63,64 @@ M.expanded = function(config, node, state)
 end
 
 M.icon = function(config, node, state)
-    -- Ensure node.name is a string so common.icon() does not crash
-    local original_name = node.name
-    if not original_name or type(original_name) ~= 'string' then
-        node.name = node.id and node.id:match("/([^/]+)$") or "unknown"
-    end
-    local _icon = common.icon(config, node, state)
-    node.name = original_name
+    local _icon = { text = config.default or '*', highlight = config.highlight or 'NeoTreeFileIcon' }
     local entry = node.extra
-    if not entry then
-        return _icon
-    end
-    if entry.refresh then
-        _icon.text = M.internal.refresh_icon
-    elseif entry.error then
-        _icon.text = M.internal.state_map.ERROR.text
-    elseif entry.icon then
-        _icon.text = string.format("%s ", entry.icon)
-    elseif node.type == 'netman_host' then
-        if entry.os and type(entry.os) == 'string' then
-            local os_icon, os_hl = icon_map(entry.os)
-            if os_icon and os_icon ~= '' then
-                _icon.text, _icon.highlight = os_icon, os_hl
+    if entry then
+        if entry.refresh then
+            _icon.text = M.internal.refresh_icon
+        elseif entry.error then
+            _icon.text = M.internal.state_map.ERROR.text
+        elseif entry.icon then
+            _icon.text = string.format("%s ", entry.icon)
+        elseif node.type == 'netman_host' then
+            if entry.os and type(entry.os) == 'string' then
+                local os_icon, os_hl = icon_map(entry.os)
+                if os_icon and os_icon ~= '' then
+                    _icon.text, _icon.highlight = os_icon, os_hl
+                end
             end
         end
+        _icon.highlight = entry.highlight or _icon.highlight
+        return _icon
     end
-    _icon.highlight = entry.highlight or _icon.highlight
+    if node.name and type(node.name) == 'string' then
+        local ok, result = pcall(common.icon, config, node, state)
+        if ok and result and result.text and result.text ~= '' then
+            return result
+        end
+    end
+    return _icon
+end
+            end
+        end
+        _icon.highlight = entry.highlight or _icon.highlight
+        return _icon
+    end
+
+    -- Non-netman nodes: try common.icon() safely
+    if node.name and type(node.name) == 'string' then
+        local ok, result = pcall(common.icon, config, node, state)
+        if ok and result and result.text and result.text ~= '' then
+            return result
+        end
+    end
+
+    return _icon
+end
+            end
+        end
+        _icon.highlight = entry.highlight or _icon.highlight
+        return _icon
+    end
+
+    -- Non-netman nodes: try common.icon() safely
+    if node.name and type(node.name) == 'string' then
+        local ok, result = pcall(common.icon, config, node, state)
+        if ok and result and result.text and result.text ~= '' then
+            return result
+        end
+    end
+
     return _icon
 end
 
