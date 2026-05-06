@@ -1,15 +1,3 @@
--- This file contains the built-in components. Each componment is a function
--- that takes the following arguments:
---      config: A table containing the configuration provided by the user
---              when declaring this component in their renderer config.
---      node:   A NuiNode object for the currently focused node.
---      state:  The current state of the source providing the items.
---
--- The function should return either a table, or a list of tables, each of which
--- contains the following keys:
---    text:      The text to display for this item.
---    highlight: The highlight group to apply to this text.
-
 local highlights = require("neo-tree.ui.highlights")
 local common = require("neo-tree.sources.common.components")
 local netman = require("netman.ui.neo-tree")
@@ -64,68 +52,35 @@ end
 
 M.icon = function(config, node, state)
     local _icon = { text = config.default or '*', highlight = config.highlight or 'NeoTreeFileIcon' }
+    if node.name and type(node.name) == 'string' then
+        local ok, result = pcall(common.icon, config, node, state)
+        if ok and result and result.text and result.text ~= '' then
+            _icon = result
+        end
+    end
     local entry = node.extra
-    if entry then
-        if entry.refresh then
-            _icon.text = M.internal.refresh_icon
-        elseif entry.error then
-            _icon.text = M.internal.state_map.ERROR.text
-        elseif entry.icon then
-            _icon.text = string.format("%s ", entry.icon)
-        elseif node.type == 'netman_host' then
-            if entry.os and type(entry.os) == 'string' then
-                local os_icon, os_hl = icon_map(entry.os)
-                if os_icon and os_icon ~= '' then
-                    _icon.text, _icon.highlight = os_icon, os_hl
-                end
-            end
-        end
-        _icon.highlight = entry.highlight or _icon.highlight
+    if not entry then
         return _icon
     end
-    if node.name and type(node.name) == 'string' then
-        local ok, result = pcall(common.icon, config, node, state)
-        if ok and result and result.text and result.text ~= '' then
-            return result
-        end
-    end
-    return _icon
-end
+    if entry.refresh then
+        _icon.text = M.internal.refresh_icon
+    elseif entry.error then
+        _icon.text = M.internal.state_map.ERROR.text
+    elseif entry.icon then
+        _icon.text = string.format("%s ", entry.icon)
+    elseif node.type == 'netman_host' then
+        if entry.os and type(entry.os) == 'string' then
+            local os_icon, os_hl = icon_map(entry.os)
+            if os_icon and os_icon ~= '' then
+                _icon.text, _icon.highlight = os_icon, os_hl
             end
         end
-        _icon.highlight = entry.highlight or _icon.highlight
-        return _icon
     end
-
-    -- Non-netman nodes: try common.icon() safely
-    if node.name and type(node.name) == 'string' then
-        local ok, result = pcall(common.icon, config, node, state)
-        if ok and result and result.text and result.text ~= '' then
-            return result
-        end
-    end
-
-    return _icon
-end
-            end
-        end
-        _icon.highlight = entry.highlight or _icon.highlight
-        return _icon
-    end
-
-    -- Non-netman nodes: try common.icon() safely
-    if node.name and type(node.name) == 'string' then
-        local ok, result = pcall(common.icon, config, node, state)
-        if ok and result and result.text and result.text ~= '' then
-            return result
-        end
-    end
-
+    _icon.highlight = entry.highlight or _icon.highlight
     return _icon
 end
 
 M.git_status = function(config, node, state)
-    -- Netman nodes have no filesystem path; skip git status entirely
     if not node.path or type(node.path) ~= "string" or (node.id and node.id:match("^%w+://")) then
         return {}
     end
