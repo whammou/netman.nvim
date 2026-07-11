@@ -94,50 +94,7 @@ M.internal.current_process_handle = nil
 M.internal.node_map = {}
 M.internal.navigate_map = {}
 M.internal.refresh_map  = {}
-M.internal._root_nodes = {
-    -- {
-    --     name = "Stop",
-    --     id = M.constants.ROOT_IDS.NETMAN_STOP,
-    --     type = M.constants.TYPES.NETMAN_STOP,
-    --     parent_id = nil,
-    --     extra = {
-    --         icon = "",
-    --         ignore_sort = true,
-    --         -- skip = true
-    --     }
-    -- },
-    -- {
-    --     name = "Recents",
-    --     id = M.constants.ROOT_IDS.NETMAN_RECENTS,
-    --     type = M.constants.TYPES.NETMAN_BOOKMARK,
-    --     parent_id = nil,
-    --     extra = {
-    --         icon = "",
-    --         ignore_sort = true,
-    --     }
-    -- },
-    -- {
-    --     id = M.constants.ROOT_IDS.NETMAN_FAVORITES,
-    --     name = "Favorites",
-    --     type = M.constants.TYPES.NETMAN_BOOKMARK,
-    --     parent_id = nil,
-    --     extra = {
-    --         icon = "",
-    --         ignore_sort = true
-    --     }
-    -- },
-    {
-        name = "Providers",
-        id = M.constants.ROOT_IDS.NETMAN_PROVIDERS,
-        type = M.constants.TYPES.NETMAN_BOOKMARK,
-        parent_id = nil,
-        extra = {
-            icon = "",
-            skip = false,
-            ignore_sort = true
-        },
-    },
-}
+M.internal._root_nodes = {}
 
 M._root = {}
 
@@ -1139,7 +1096,27 @@ function M.delete(state, confirmed, callback)
     end
 end
 
+local _o_keymap_registered = false
+
+local function ensure_o_keymap(state)
+    if not _o_keymap_registered and state and state.bufnr then
+        _o_keymap_registered = true
+        vim.schedule(function()
+            pcall(vim.api.nvim_buf_set_keymap, state.bufnr, "n", "O", "", {
+                noremap = true,
+                silent = true,
+                desc = "Open with System Application",
+                callback = function()
+                    local commands = require("netman.ui.neo-tree.commands")
+                    commands.system_open(require("neo-tree.sources.manager").get_state("remote"))
+                end,
+            })
+        end)
+    end
+end
+
 function M.navigate(state, target_node)
+    ensure_o_keymap(state)
     local tree = state.tree
     local render_tree = nil
     local render_parent = nil
@@ -1349,19 +1326,29 @@ end
 
 function M.setup()
     logger.debug("Initializing Neotree Node Type Navigation Map")
-    M.internal.navigate_map[M.constants.ROOT_IDS.NETMAN_PROVIDERS] = navigate_root_provider
-    M.internal.navigate_map[M.constants.ROOT_IDS.NETMAN_FAVORITES] = navigate_directory
-    M.internal.navigate_map[M.constants.ROOT_IDS.NETMAN_RECENTS] = navigate_directory
     M.internal.navigate_map[M.constants.TYPES.NETMAN_FILE] = navigate_uri
     M.internal.navigate_map[M.constants.TYPES.NETMAN_EXPLORE] = navigate_uri
     M.internal.navigate_map[M.constants.TYPES.NETMAN_HOST] = navigate_uri
     M.internal.navigate_map[M.constants.TYPES.NETMAN_PROVIDER] = navigate_provider
     logger.debug("Initializing Neotree Node Type Refresh Map")
     M.internal.refresh_map[M.constants.TYPES.NETMAN_PROVIDER] = refresh_provider
-    for _, node in pairs(M.internal._root_nodes) do
-        logger.trace2("Creating nui node for root node", node)
-        create_node(node)
-        table.insert(M._root, node.id)
+    local raw_providers = netman_ui.get_providers()
+    for name, provider_details in pairs(raw_providers) do
+        local provider_node = {
+            id = provider_details.path,
+            name = name,
+            type = M.constants.TYPES.NETMAN_PROVIDER,
+            children = {},
+            extra = {
+                icon = provider_details.ui.icon,
+                highlight = provider_details.ui.highlight,
+                path = provider_details.path,
+                hosts_func = provider_details.hosts
+            }
+        }
+        logger.trace2("Creating nui node for root provider", provider_node)
+        create_node(provider_node)
+        table.insert(M._root, provider_node.id)
     end
     M.internal.state_change_callback_id = netman_api.register_event_callback(UI_EVENTS.STATE_CHANGED, update_state_of_host)
 end

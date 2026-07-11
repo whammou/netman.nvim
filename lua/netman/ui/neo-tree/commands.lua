@@ -2,6 +2,8 @@
 local input = require("neo-tree.ui.inputs")
 local cc = require("neo-tree.sources.common.commands")
 local ui = require("netman.ui.neo-tree")
+local netman_api = require("netman.api")
+local logger = require("netman.ui").get_logger()
 local M = {}
 
 local do_callback = function(callback)
@@ -67,6 +69,46 @@ end
 
 M.paste_node = function(state, callback)
     ui.paste_node(state)
+    do_callback(callback)
+end
+
+M.system_open = function(state, callback)
+    vim.api.nvim_echo({{"system_open called!", "WarningMsg"}}, true, {})
+    local ok, err = pcall(function()
+        local tree = state.tree
+        if not tree then
+            logger.warn("No tree available for system_open")
+            return
+        end
+        local node = tree:get_node()
+        if not node then
+            logger.warn("system_open: no node under cursor")
+            return
+        end
+        logger.info(string.format("system_open: node type=%s id=%s", node.type, node:get_id()))
+        if node.type ~= "file" then
+            logger.info("system_open only works on files")
+            return
+        end
+        local uri = node:get_id()
+        if not uri then
+            logger.warn("system_open: node has no id")
+            return
+        end
+        -- Try node.extra.uri if set (some netman nodes carry the provider URI there)
+        local resource_uri = (node.extra and node.extra.uri) or uri
+        -- Convert davs:// -> https:// and dav:// -> http:// so xdg-open can handle it
+        local url = resource_uri:gsub("^davs://", "https://"):gsub("^dav://", "http://")
+        logger.info(string.format("system_open: opening %s", url))
+        local cmd = string.format("xdg-open '%s'", url:gsub("'", "'\\''"))
+        vim.fn.system(cmd)
+        if vim.v.shell_error ~= 0 then
+            logger.error(string.format("xdg-open failed for %s (exit %s)", url, vim.v.shell_error))
+        end
+    end)
+    if not ok then
+        logger.error(string.format("system_open error: %s", err))
+    end
     do_callback(callback)
 end
 

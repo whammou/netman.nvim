@@ -835,13 +835,9 @@ function M.ui.get_host_details(config, host, provider_cache)
     local hosts = config:get('hosts') or {}
     local host_uri = hosts[host] or host
     local connection = WebDAV:new(host_uri, provider_cache)
-    local get_path = function()
-        return { { uri = string.format("%s://%s:%s/", connection.protocol, connection.host, connection.port), name = '/' } }
-    end
     return {
         NAME = host,
-        URI = string.format("%s://%s:%s/", connection.protocol, connection.host, connection.port),
-        ENTRYPOINT = get_path
+        URI = string.format("%s://%s:%s/", connection.protocol, connection.host, connection.port)
     }
 end
 
