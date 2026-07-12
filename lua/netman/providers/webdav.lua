@@ -686,8 +686,17 @@ function WebDAV:mv(locations, target_location, opts)
             location = location:to_string()
         end
 
-        local dest_url = self:build_url(target_location)
-        local response = self:request('MOVE', location, { destination = dest_url })
+        -- Use path-only Destination header (full URL causes 502 behind some proxies)
+        local curl_cmd = vim.deepcopy(self.base_curl)
+        table.insert(curl_cmd, '-X')
+        table.insert(curl_cmd, 'MOVE')
+        table.insert(curl_cmd, '-H')
+        table.insert(curl_cmd, string.format('Destination: %s', target_location))
+        table.insert(curl_cmd, '-H')
+        table.insert(curl_cmd, 'Overwrite: T')
+        local url = self:build_url(location)
+        table.insert(curl_cmd, url)
+        local response = self:run_command(curl_cmd, opts)
         if response.exit_code ~= 0 and not opts.ignore_errors then
             local message = string.format("Unable to move %s to %s", location, target_location)
             return { success = false, error = message }

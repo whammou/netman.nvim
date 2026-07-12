@@ -5,38 +5,38 @@ local config = {
 config.renderers =
 {
     file = {
-        { 'indent'  },
+        { 'indent', with_expanders = false },
         { 'marked'  },
         { 'icon'    },
         { 'name'    }
     },
     directory = {
-        { 'indent'  },
+        { 'indent', with_expanders = false },
         { 'marked'  },
-        { 'icon'    },
         { 'expanded'},
+        { 'icon'    },
         { 'name'    }
     },
     netman_provider = {
-        { 'indent'  },
+        { 'indent', with_expanders = false },
         { 'expanded'},
         { 'icon'    },
         { 'name'    }
     },
     netman_host = {
-        { 'indent'  },
+        { 'indent', with_expanders = false },
         { 'expanded'},
         { 'state'   },
         { 'icon'    },
         { 'name'    }
     },
     netman_bookmark = {
-        { 'indent' },
+        { 'indent', with_expanders = false },
         { 'icon'   },
         { 'name'   }
     },
     netman_stop    = {
-        { 'indent' },
+        { 'indent', with_expanders = false },
         { 'icon'   },
         { 'name'   },
         { 'action' }

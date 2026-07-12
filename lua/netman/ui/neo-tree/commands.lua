@@ -73,7 +73,6 @@ M.paste_node = function(state, callback)
 end
 
 M.system_open = function(state, callback)
-    vim.api.nvim_echo({{"system_open called!", "WarningMsg"}}, true, {})
     local ok, err = pcall(function()
         local tree = state.tree
         if not tree then

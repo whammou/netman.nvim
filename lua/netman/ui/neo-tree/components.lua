@@ -45,7 +45,9 @@ end
 M.expanded = function(config, node, state)
     local _icon = nil
     if node:is_expanded() then
-        _icon = { text = '', highlight = '' }
+        _icon = { text = '', highlight = 'NeoTreeExpander', no_padding = true }
+    else
+        _icon = { text = '', highlight = 'NeoTreeExpander', no_padding = true }
     end
     return _icon
 end
@@ -88,7 +90,7 @@ M.git_status = function(config, node, state)
 end
 
 M.state = function(config, node, state)
-    local icon = "  "
+    local icon = ""
     local highlight = nil
     local entry = node.extra
     if not entry then
@@ -102,7 +104,6 @@ M.state = function(config, node, state)
         icon = _state.text
         highlight = _state.highlight
     end
-    icon = string.format("%s", icon)
     return {
         text = icon,
         highlight = highlight
