@@ -35,8 +35,8 @@ M.version = 0.2
 M.internal = {}
 M.archive = {}
 
-M.ui = {
-    icon = ""
+    M.ui = {
+    icon = ""
 }
 
 local SSH = {

@@ -478,11 +478,11 @@ local function navigate_uri(nui_node, state, complete_callback, remaining_uris, 
             if message.error == netman_errors.ITEM_DOESNT_EXIST then
                 local uri = message.uri
                 local local_name = nui_node.name
-                logger.warnnf("%s no longer exists!", local_name)
-                logger.infof("%s is not available on remote resource anymore", uri)
-                M.internal.node_map[uri] = nil
-                state.tree:remove_node(uri)
-                neo_tree_renderer.redraw(state)
+                -- Transient stat failure (timeout, slow server) — the item may still exist.
+                -- Don't remove it from the tree; just warn and skip.
+                vim.api.nvim_echo({{"Unable to open " .. local_name .. " (connection issue, try again)", "WarningMsg"}}, true, {})
+                logger.warnnf("Stat failed when opening %s — item may still exist, skipping", local_name)
+                logger.infof("URI was %s", uri or "unknown")
             elseif message.error == netman_errors.PERMISSION_ERROR then
                 local warning = message.message or "Permission Denied"
                 logger.warnn(warning)
@@ -710,21 +710,17 @@ local function refresh_uri(nui_nodes, state, complete_callback, focused_node_id)
     refresher = function(results, complete, start)
         if results and not results.success then
             if results.message and results.message.error then
-                -- Gracefully handle the error
+                vim.api.nvim_echo({{"Refresh error: " .. tostring(results.message.error), "WarningMsg"}}, true, {})
                 logger.infof("Received Error `%s`", results.message.error)
                 if results.message.error == netman_errors.ITEM_DOESNT_EXIST then
-                    -- Probably should notify the user that this node was removed?
-                    -- Remove the parent node and return
-                    M.internal.node_map[results.message.uri] = nil
-                    if tree:get_node(results.message.uri) then
-                        tree:remove_node(results.message.uri)
-                    end
-                    -- return
+                    -- Transient stat failure (timeout, slow server) — the item may still exist.
+                    -- Don't remove it from the tree; just skip this refresh cycle.
+                    logger.warnf("Stat failed for %s — item may still exist, skipping refresh", results.message.uri or "unknown")
                 end
+            else
+                local err_msg = (results.message and results.message.message) or "Unknown error during refresh"
+                vim.api.nvim_echo({{"Refresh failed: " .. tostring(err_msg), "WarningMsg"}}, true, {})
             end
-            -- We should really be complaining
-            -- logger.warn("Unhandled error returned on refresh!", results)
-            -- return
         end
 
         if results and results.data then
@@ -815,7 +811,9 @@ local function refresh_uri(nui_nodes, state, complete_callback, focused_node_id)
             --         tree:remove_node(child_id)
             --     end
             -- end
-            start_refresh()
+            -- Throttle: small delay between batched refreshes to prevent
+            -- overwhelming the server with rapid connections
+            vim.defer_fn(start_refresh, 300)
         end
     end
     refresher(nil, nil, true)
@@ -1009,6 +1007,10 @@ function M.refresh(state, callback)
     for _, target_node in ipairs(raw_target_nodes) do
         if type(target_node) == 'string' then
             target_node = tree:get_node(target_node)
+        end
+        if not target_node then
+            logger.debugf("Skipping refresh for nil target_node (may have been removed)")
+            goto continue
         end
         if target_node.type == M.constants.TYPES.NETMAN_BOOKMARK then
             logger.debugn("Refreshing Bookmarks is not supported. Stop it")

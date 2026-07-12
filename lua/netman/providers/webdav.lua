@@ -31,7 +31,7 @@ local M = {
     archive = {}
 }
 
-M.ui.icon = "🌐"
+M.ui.icon = "󰖟"
 local success, web_devicons = pcall(require, "nvim-web-devicons")
 if success then
     local devicon, _ = web_devicons.get_icon('globe')
@@ -134,6 +134,27 @@ local URI = {}
 M.internal.WebDAV = WebDAV
 M.internal.URI = URI
 
+--- URL-encodes a path string, preserving / separators.
+--- @param path string The path to encode
+--- @return string URL-encoded path
+function M.internal.uri_encode(path)
+    local parts = {}
+    for segment in path:gmatch('[^/]+') do
+        if vim.uri_encode then
+            table.insert(parts, vim.uri_encode(segment))
+        else
+            table.insert(parts, segment:gsub('[^%w%.~_-]', function(c)
+                return string.format('%%%02X', string.byte(c))
+            end))
+        end
+    end
+    if #parts > 0 then
+        local prefix = path:sub(1, 1) == '/' and '/' or ''
+        return prefix .. table.concat(parts, '/')
+    end
+    return '/'
+end
+
 --- Creates a new WebDAV connection object
 --- @param auth_details table|string
 ---     Authentication details as a table or URI string
@@ -170,24 +191,22 @@ function WebDAV:new(auth_details, provider_cache)
     _webdav.__type = 'netman_provider_webdav'
     _webdav.cache = CACHE:new(CACHE.FOREVER)
 
-    -- Build the base URL, including any subpath from the URI (e.g. /remote.php/dav/files/user)
-    local base_path = ''
-    if auth_details.path and #auth_details.path > 0 then
-        local filtered = {}
-        for _, part in ipairs(auth_details.path) do
-            if part ~= '/' then table.insert(filtered, part) end
-        end
-        if #filtered > 0 then
-            base_path = '/' .. table.concat(filtered, '/')
-        end
-    end
     -- Map dav/davs → http/https for curl (curl does not understand dav:// scheme)
+    -- base_url is the server root only; all resource paths are appended via build_url().
+    -- Do NOT include the URI's path here — build_url(uri:to_string()) handles that.
     local http_protocol = _webdav.protocol == 'davs' and 'https' or 'http'
-    _webdav.base_url = string.format("%s://%s:%s%s", http_protocol, _webdav.host, _webdav.port, base_path)
+    _webdav.base_url = string.format("%s://%s:%s", http_protocol, _webdav.host, _webdav.port)
 
     -- Build base curl command with common flags
-    -- -s: silent, -g: disable URL globbing (for brackets in paths), --fail: fail on HTTP errors
-    _webdav.base_curl = { 'curl', '-s', '-g', '--fail' }
+    -- Each curl invocation is a separate TCP+TLS connection (no connection reuse).
+    -- Prefer responsiveness over persistence: short timeouts, no retries.
+    -- With the double-path bug fixed, failures are genuine — retrying just adds latency.
+    _webdav.base_curl = {
+        'curl', '-s', '-g', '--fail',
+        '--location',
+        '--connect-timeout', '10',
+        '--max-time', '15',
+    }
     if _webdav.user:len() > 0 then
         local userpass = _webdav.user
         if _webdav.pass:len() > 0 then
@@ -214,19 +233,22 @@ function WebDAV:build_url(path)
     if not path or path:len() == 0 then path = '/' end
     -- Ensure path starts with /
     if path:sub(1, 1) ~= '/' then path = '/' .. path end
-    return self.base_url .. path
+    local encoded = M.internal.uri_encode(path)
+    return self.base_url .. encoded
 end
 
 --- Runs a shell command (used for curl)
 --- @param command table The command to run (list of args)
---- @param opts table|nil Options for the shell
+--- @param opts table|nil Options for the shell (timeout in ms via opts.timeout)
 function WebDAV:run_command(command, opts)
     opts = vim.tbl_extend("force", {
         [command_flags.STDOUT_JOIN] = '',
         [command_flags.STDERR_JOIN] = ''
     }, opts or {})
+    local timeout = opts.timeout
+    opts.timeout = nil  -- don't pass to shell:new
     local _shell = shell:new(command, opts)
-    local _shell_output = _shell:run()
+    local _shell_output = _shell:run(timeout)
     logger.trace(_shell:dump_self_to_table())
     return _shell_output
 end
@@ -309,6 +331,7 @@ function WebDAV:request(method, path, opts)
     table.insert(curl_cmd, url)
 
     logger.trace(string.format("WebDAV %s %s", method, url))
+    opts.timeout = 60000  -- 60-second shell timeout (shell default is 10s, curl --connect-timeout is 15s)
     return self:run_command(curl_cmd, opts)
 end
 
@@ -443,15 +466,22 @@ function WebDAV:find(location, opts)
 
     local entries = parse_propfind_xml(response.stdout)
     local children = {}
+    local seen_hrefs = {}
 
     for _, entry in ipairs(entries) do
         -- Skip the requested resource itself (Depth:1 returns parent + children)
         if entry.href and entry.href ~= location then
+            if seen_hrefs[entry.href] then
+                logger.trace("Skipping duplicate PROPFIND entry", entry.href)
+                goto continue
+            end
+            seen_hrefs[entry.href] = true
             local parsed = self:_parse_stat_entry(entry)
             if parsed then
                 table.insert(children, parsed)
             end
         end
+        ::continue::
     end
 
     return children
@@ -509,7 +539,8 @@ function WebDAV:get(location, output_dir, opts)
     table.insert(curl_cmd, self:build_url(location:to_string()))
 
     command_options[command_flags.STDOUT_JOIN] = ''
-    local run_details = shell:new(curl_cmd, command_options):run()
+    -- 60s shell timeout (shell default is 10s, curl --max-time is 120s)
+    local run_details = shell:new(curl_cmd, command_options):run(60000)
     if not opts.async then return return_details else return run_details end
 end
 
@@ -688,14 +719,16 @@ function WebDAV:mv(locations, target_location, opts)
 
         -- Use path-only Destination header (full URL causes 502 behind some proxies)
         local curl_cmd = vim.deepcopy(self.base_curl)
+        local dest_path = M.internal.uri_encode(target_location)
         table.insert(curl_cmd, '-X')
         table.insert(curl_cmd, 'MOVE')
         table.insert(curl_cmd, '-H')
-        table.insert(curl_cmd, string.format('Destination: %s', target_location))
+        table.insert(curl_cmd, string.format('Destination: %s', dest_path))
         table.insert(curl_cmd, '-H')
         table.insert(curl_cmd, 'Overwrite: T')
         local url = self:build_url(location)
         table.insert(curl_cmd, url)
+        opts.timeout = 60000
         local response = self:run_command(curl_cmd, opts)
         if response.exit_code ~= 0 and not opts.ignore_errors then
             local message = string.format("Unable to move %s to %s", location, target_location)
@@ -1038,7 +1071,9 @@ function M.close_connection(uri, cache)
     -- HTTP connections are stateless; nothing to close
 end
 
---- Reads contents from a WebDAV server
+--- Reads contents from a WebDAV server.
+--- Uses a single PROPFIND Depth:1 to both confirm existence and list children
+--- (avoids a separate stat() call = one less TCP+TLS connection per directory read).
 --- @param uri string The URI to read
 --- @param cache Cache The netman.api provided cache
 --- @return table @see :help netman.api.read for details
@@ -1049,10 +1084,29 @@ function M.read(uri, cache)
     uri = validation.uri
     connection = validation.connection
 
-    -- Stat the URI to determine type
-    local stat = connection:stat(uri:to_string())
-    local _, stat_data = next(stat)
-    if not stat_data then
+    local response = connection:request('PROPFIND', uri:to_string(), { depth = '1' })
+    if response.exit_code ~= 0 then
+        local err = response.stderr or ''
+        local exit_code = response.exit_code
+        if err:match('403') or err:match('401') or err:match('407') then
+            return {
+                success = false,
+                message = {
+                    message = string.format("Permission Denied when accessing %s", uri:to_string()),
+                    error = api_flags.ERRORS.PERMISSION_ERROR
+                }
+            }
+        end
+        -- Timeout or connection error (exit codes 6=DNS, 7=refused, 28=timeout)
+        if exit_code == 6 or exit_code == 7 or exit_code == 28 then
+            return {
+                success = false,
+                message = {
+                    message = string.format("Unable to connect to %s (network error, try again)", uri:to_string()),
+                    error = api_flags.ERRORS.ITEM_DOESNT_EXIST
+                }
+            }
+        end
         return {
             success = false,
             message = {
@@ -1062,11 +1116,175 @@ function M.read(uri, cache)
         }
     end
 
-    if stat_data.TYPE == 'directory' then
-        return M.internal.read_directory(uri, connection)
+    local entries = parse_propfind_xml(response.stdout)
+    if #entries == 0 then
+        return {
+            success = false,
+            message = {
+                message = string.format("%s doesn't exist", uri:to_string()),
+                error = api_flags.ERRORS.ITEM_DOESNT_EXIST
+            }
+        }
+    end
+
+    -- First entry is always the queried resource itself
+    local parent_entry = entries[1]
+    local is_dir = parent_entry.props and parent_entry.props.is_collection
+
+    if is_dir then
+        -- Directory: skip first entry (parent), process rest as children
+        local children = {}
+        for i = 2, #entries do
+            local parsed = connection:_parse_stat_entry(entries[i])
+            if parsed then
+                table.insert(children, parsed)
+            end
+        end
+        local data = {}
+        for _, child in ipairs(children) do
+            local absolute_path = {}
+            for _, part in ipairs(child.ABSOLUTE_PATH or {}) do
+                table.insert(absolute_path, part)
+            end
+            data[child.URI or child.NAME] = {
+                URI = child.URI or child.NAME,
+                FIELD_TYPE = child.FIELD_TYPE,
+                NAME = child.NAME,
+                ABSOLUTE_PATH = child.ABSOLUTE_PATH or {},
+                METADATA = child
+            }
+        end
+        return {
+            success = true,
+            data = data,
+            type = api_flags.READ_TYPE.EXPLORE
+        }
     else
         return M.internal.read_file(uri, connection)
     end
+end
+
+--- Async version of M.read — PROPFIND runs in background via uv.spawn,
+--- Neovim event loop keeps running. callback(data, true) fires on completion.
+--- Returns { handle = handle } for netman API cancellation.
+--- @param uri string The URI to read
+--- @param cache Cache The netman.api provided cache
+--- @param callback function Callback expecting (data, complete)
+--- @return table|nil { handle = handle } for cancellation
+function M.read_a(uri, cache, callback)
+    local connection = nil
+    local validation = M.internal.validate(uri, cache)
+    if validation.message then callback(validation, true); return end
+    uri = validation.uri
+    connection = validation.connection
+
+    -- Build curl command for PROPFIND Depth:1
+    local curl_cmd = {}
+    for _, v in ipairs(connection.base_curl) do
+        table.insert(curl_cmd, v)
+    end
+    table.insert(curl_cmd, '-X')
+    table.insert(curl_cmd, 'PROPFIND')
+    table.insert(curl_cmd, '-H')
+    table.insert(curl_cmd, 'Depth: 1')
+    -- base_url is server-only; use uri:to_string() for the resource path.
+    local url = connection:build_url(uri:to_string())
+    table.insert(curl_cmd, url)
+
+    -- Start async shell — uv.spawn runs curl in background
+    local shell_opts = {
+        [command_flags.STDOUT_JOIN] = '',
+        [command_flags.STDERR_JOIN] = '',
+        [command_flags.ASYNC] = true,
+        [command_flags.EXIT_CALLBACK] = function(result)
+            if result.exit_code ~= 0 then
+                local err = result.stderr or ''
+                logger.warnf("PROPFIND failed for %s (exit=%d): %s", uri:to_string(), result.exit_code, err)
+                if err:match('403') or err:match('401') or err:match('407') then
+                    callback({
+                        success = false,
+                        message = {
+                            message = string.format("Permission Denied when accessing %s", uri:to_string()),
+                            error = api_flags.ERRORS.PERMISSION_ERROR
+                        }
+                    }, true)
+                    return
+                end
+                if result.exit_code == 6 or result.exit_code == 7 or result.exit_code == 28 then
+                    callback({
+                        success = false,
+                        message = {
+                            message = string.format("Unable to connect to %s (network error, try again)", uri:to_string()),
+                            error = api_flags.ERRORS.ITEM_DOESNT_EXIST
+                        }
+                    }, true)
+                    return
+                end
+                callback({
+                    success = false,
+                    message = {
+                message = string.format("%s doesn't exist", uri:to_string()),
+                        error = api_flags.ERRORS.ITEM_DOESNT_EXIST
+                    }
+                }, true)
+                return
+            end
+
+            local entries = parse_propfind_xml(result.stdout)
+            if #entries == 0 then
+                callback({
+                    success = false,
+                    message = {
+                        message = string.format("%s doesn't exist", uri:to_string()),
+                        error = api_flags.ERRORS.ITEM_DOESNT_EXIST
+                    }
+                }, true)
+                return
+            end
+
+            -- First entry is the queried resource itself
+            local parent_entry = entries[1]
+            local is_dir = parent_entry.props and parent_entry.props.is_collection
+
+            if is_dir then
+                -- Directory: skip first entry (parent), process rest as children
+                local children = {}
+                for i = 2, #entries do
+                    local parsed = connection:_parse_stat_entry(entries[i])
+                    if parsed then
+                        table.insert(children, parsed)
+                    end
+                end
+                local data = {}
+                for _, child in ipairs(children) do
+                    local absolute_path = {}
+                    for _, part in ipairs(child.ABSOLUTE_PATH or {}) do
+                        table.insert(absolute_path, part)
+                    end
+                    data[child.URI or child.NAME] = {
+                        URI = child.URI or child.NAME,
+                        FIELD_TYPE = child.FIELD_TYPE,
+                        NAME = child.NAME,
+                        ABSOLUTE_PATH = child.ABSOLUTE_PATH or {},
+                        METADATA = child
+                    }
+                end
+                callback({
+                    success = true,
+                    data = data,
+                    type = api_flags.READ_TYPE.EXPLORE
+                }, true)
+            else
+                -- File: synchronously download (fast for small files, not blocking the UI
+                -- since this runs inside the uv callback, not the main event loop)
+                callback(M.internal.read_file(uri, connection), true)
+            end
+        end
+    }
+
+    local _shell = shell:new(curl_cmd, shell_opts)
+    local handle = _shell:run(60000)
+    return { handle = handle }
 end
 
 --- Writes data to a URI via PUT
