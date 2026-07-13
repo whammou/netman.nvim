@@ -2414,13 +2414,13 @@ end
 --- @param cache Cache The netman.api provided cache
 --- @return table { success = boolean }
 function M.mkdir(uri, cache)
-    local connection = nil
+    local host = nil
     local validation = M.internal.validate(uri, cache)
     if validation.message then return validation end
     uri = validation.uri
-    connection = validation.connection
+    host = validation.host
 
-    local result = connection:mkdir(uri:to_string())
+    local result = host:mkdir(uri:to_string())
     if not result.success then
         return { success = false, message = { message = result.error } }
     end
