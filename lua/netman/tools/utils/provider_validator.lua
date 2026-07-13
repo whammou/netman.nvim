@@ -76,6 +76,10 @@ local _mock_provider = {
         required = false,
         type = 'function'
     },
+    mkdir = {
+        required = false,
+        type = 'function'
+    },
     connect_host = {
         required = false,
         type = 'function'

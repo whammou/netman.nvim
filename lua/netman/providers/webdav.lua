@@ -1317,6 +1317,24 @@ function M.write(uri, cache, data)
     return result
 end
 
+--- Creates a directory via MKCOL
+--- @param uri string|URI The directory URI to create
+--- @param cache Cache The netman.api provided cache
+--- @return table { success = boolean }
+function M.mkdir(uri, cache)
+    local connection = nil
+    local validation = M.internal.validate(uri, cache)
+    if validation.message then return validation end
+    uri = validation.uri
+    connection = validation.connection
+
+    local result = connection:mkdir(uri:to_string())
+    if not result.success then
+        return { success = false, message = { message = result.error } }
+    end
+    return { success = true, uri = uri:to_string('remote') }
+end
+
 --- Deletes a resource via DELETE
 --- @param uri string The URI to delete
 --- @param cache Cache The netman.api provided cache

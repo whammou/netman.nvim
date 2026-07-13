@@ -1886,6 +1886,23 @@ function M.move(uris, target_uri, cache)
     return container:mv(validated_uris, target_uri)
 end
 
+--- Creates a directory via container:mkdir
+--- @param uri string|URI The directory URI to create
+--- @param cache Cache The netman.api provided cache
+--- @return table { success = boolean }
+function M.mkdir(uri, cache)
+    local container = nil
+    local validation = M.internal.validate(uri, cache)
+    if validation.message then return validation end
+    uri = validation.uri
+    container = validation.container
+    local result = container:mkdir(uri)
+    if not result.success then
+        return { success = false, message = { message = result.error } }
+    end
+    return { success = true, uri = uri:to_string('remote') }
+end
+
 function M.delete(uri, cache)
     local container = nil
     local validation = M.internal.validate(uri, cache)

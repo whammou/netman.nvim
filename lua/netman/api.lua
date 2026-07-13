@@ -1273,6 +1273,29 @@ function M.search(uri, param, opts)
     return data
 end
 
+--- Creates a directory through the matching provider
+--- @param uri string The directory URI to create
+--- @param callback function|nil Optional callback (data, complete)
+--- @return table
+function M.mkdir(uri, callback)
+    local orig_uri = uri
+    local provider, cache = nil, nil
+    uri, provider, cache, _ = M.internal.validate_uri(uri)
+    if not uri or not provider then
+        return {
+            success = false,
+            message = string.format("Unable to get metadata for %s or unable to find provider for it", orig_uri)
+        }
+    end
+    if not provider.mkdir then
+        return {
+            success = false,
+            message = { message = string.format("Provider %s does not support mkdir", provider.name) }
+        }
+    end
+    return provider.mkdir(uri, cache)
+end
+
 function M.delete(uri, callback)
     local orig_uri = uri
     local provider, cache = nil, nil

@@ -226,16 +226,17 @@ local function navigate_root_provider(nui_node)
         local raw_providers = netman_ui.get_providers()
         local providers = {}
         for name, provider_details in pairs(raw_providers) do
+            local hosts = provider_details.hosts()
             local provider_node = {
                 id = provider_details.path,
                 name = name,
                 type = M.constants.TYPES.NETMAN_PROVIDER,
-                children = {},
                 extra = {
                     icon = provider_details.ui.icon,
                     highlight = provider_details.ui.highlight,
                     path = provider_details.path,
-                    hosts_func = provider_details.hosts
+                    hosts_func = provider_details.hosts,
+                    has_hosts = next(hosts) ~= nil,
                 }
             }
             create_node(provider_node, node.id)
@@ -282,7 +283,6 @@ local function navigate_provider(nui_node)
                 id = raw_host_details.id,
                 name = host_name,
                 type = M.constants.TYPES.NETMAN_HOST,
-                children = {},
                 extra = {
                     get_state = raw_host_details.state,
                     uri = raw_host_details.uri,
@@ -293,6 +293,10 @@ local function navigate_provider(nui_node)
             }
             create_node(host_details, nui_node:get_id())
             table.insert(hosts, host_details.id)
+        end
+        if #hosts == 0 then
+            -- No hosts configured for this provider; leave collapsed
+            return nil, true
         end
         nui_node:expand()
         node.extra.nui_node._is_expanded = true
@@ -859,11 +863,11 @@ local function add_uri(state, new_name, opts, complete_callback)
             if complete_callback then complete_callback() end
             return
         end
-        local mapped_head_path = path_map[head_path]
+        local mapped_head_path = path_map[head_path] or head_path
         local head_node = tree:get_node(mapped_head_path)
-        if head_node.type == 'directory' then
+        if head_node and head_node.type == 'directory' then
             -- Open the node
-            local nui_node = tree:get_node(head_path)
+            local nui_node = head_node
             navigate_uri(nui_node, state, navigate_to_new_node)
         else
             -- focus the node
@@ -905,22 +909,28 @@ local function add_uri(state, new_name, opts, complete_callback)
     end
     logger.trace("Preloaded the write queue", process_map)
     for _, uri in ipairs(path) do
-        local handle =
-            netman_api.write(
-                uri,
-                nil,
-                nil,
-                function(data, complete)
-                    process_result(uri, data, complete)
-                end
-            )
-        -- Because the underlying write request may still be synchronous,
-        -- even if we ask it to be async, we need to check to see
-        -- if the process has already been resolved. IE, was the 
-        -- process ran synchronously? If so, then there wont be anything
-        -- in the map and there is no reason to save the handle
-        if process_map[uri] then
-            process_map[uri] = handle
+        local is_dir = uri:match(string.format("%s$", path_sep))
+        if is_dir then
+            local result = netman_api.mkdir(uri)
+            process_result(uri, result, true)
+        else
+            local handle =
+                netman_api.write(
+                    uri,
+                    nil,
+                    nil,
+                    function(data, complete)
+                        process_result(uri, data, complete)
+                    end
+                )
+            -- Because the underlying write request may still be synchronous,
+            -- even if we ask it to be async, we need to check to see
+            -- if the process has already been resolved. IE, was the 
+            -- process ran synchronously? If so, then there wont be anything
+            -- in the map and there is no reason to save the handle
+            if process_map[uri] then
+                process_map[uri] = handle
+            end
         end
     end
     process_result(nil, nil, true, true)
@@ -1336,16 +1346,17 @@ function M.setup()
     M.internal.refresh_map[M.constants.TYPES.NETMAN_PROVIDER] = refresh_provider
     local raw_providers = netman_ui.get_providers()
     for name, provider_details in pairs(raw_providers) do
+        local hosts = provider_details.hosts()
         local provider_node = {
             id = provider_details.path,
             name = name,
             type = M.constants.TYPES.NETMAN_PROVIDER,
-            children = {},
             extra = {
                 icon = provider_details.ui.icon,
                 highlight = provider_details.ui.highlight,
                 path = provider_details.path,
-                hosts_func = provider_details.hosts
+                hosts_func = provider_details.hosts,
+                has_hosts = next(hosts) ~= nil,
             }
         }
         logger.trace2("Creating nui node for root provider", provider_node)

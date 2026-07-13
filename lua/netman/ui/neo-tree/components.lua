@@ -43,13 +43,19 @@ M.marked = function(config, node, state)
 end
 
 M.expanded = function(config, node, state)
-    local _icon = nil
-    if node:is_expanded() then
-        _icon = { text = '', highlight = 'NeoTreeExpander', no_padding = true }
-    else
-        _icon = { text = '', highlight = 'NeoTreeExpander', no_padding = true }
+    -- Show expander only for nodes that can hold children.
+    -- For providers, only show if they have actual hosts configured.
+    if node.type == 'netman_provider' then
+        if not (node.extra and node.extra.has_hosts) then
+            return { text = '', highlight = 'NeoTreeExpander', no_padding = true }
+        end
+    elseif not (node:has_children() or node.type == 'directory' or node.type == 'netman_host') then
+        return nil
     end
-    return _icon
+    if node:is_expanded() then
+        return { text = '', highlight = 'NeoTreeExpander', no_padding = true }
+    end
+    return { text = '', highlight = 'NeoTreeExpander', no_padding = true }
 end
 
 M.icon = function(config, node, state)
